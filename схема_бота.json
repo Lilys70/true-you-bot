@@ -1,0 +1,582 @@
+{
+  "project": "Проект 1. Telegram-бот для диагностики уровня самооценки",
+  "artifact": "схема_бота.json",
+  "version": "шаг 5 — финальная полировка",
+  "code": {
+    "entry_point": "bot.py",
+    "questions": "данные/questions.py",
+    "storage": "хранилище/заявки.py",
+    "data_file": "хранилище/заявки.json",
+    "framework": "aiogram 3.7.0",
+    "fsm_storage": "MemoryStorage (состояния живут в памяти процесса)"
+  },
+  "legend": {
+    "node": "экран: что видит пользователь",
+    "transition": "событие, откуда и куда ведёт, что при этом меняется",
+    "state": "FSM-состояние aiogram: какие события бот принимает в этом состоянии",
+    "exit": "точка выхода сценария"
+  },
+  "commands_and_buttons": [
+    {
+      "id": "/start",
+      "type": "command",
+      "label": "/start",
+      "handler": "cmd_start",
+      "goes_to": "welcome",
+      "available_in": "любой момент",
+      "effect": "state.clear(): прерванный тест или заявка забыты"
+    },
+    {
+      "id": "start_test",
+      "type": "callback",
+      "label": "Начать тест",
+      "handler": "on_start_test",
+      "goes_to": "instruction",
+      "available_in": "welcome, reset_done",
+      "effect": "показывается инструкция, состояние FSM не меняется"
+    },
+    {
+      "id": "test_go",
+      "type": "callback",
+      "label": "Поехали",
+      "handler": "on_test_go",
+      "goes_to": "question",
+      "available_in": "instruction",
+      "effect": "state = answering, index = 0, scores = []"
+    },
+    {
+      "id": "ans_0",
+      "type": "callback",
+      "label": "Никогда",
+      "handler": "on_answer",
+      "goes_to": "question | result",
+      "available_in": "question (state answering)",
+      "effect": "балл 0; для обратного вопроса зачётный балл 4"
+    },
+    {
+      "id": "ans_1",
+      "type": "callback",
+      "label": "Редко",
+      "handler": "on_answer",
+      "goes_to": "question | result",
+      "available_in": "question (state answering)",
+      "effect": "балл 1; для обратного вопроса зачётный балл 3"
+    },
+    {
+      "id": "ans_2",
+      "type": "callback",
+      "label": "Иногда",
+      "handler": "on_answer",
+      "goes_to": "question | result",
+      "available_in": "question (state answering)",
+      "effect": "балл 2; для обратного вопроса зачётный балл 2"
+    },
+    {
+      "id": "ans_3",
+      "type": "callback",
+      "label": "Часто",
+      "handler": "on_answer",
+      "goes_to": "question | result",
+      "available_in": "question (state answering)",
+      "effect": "балл 3; для обратного вопроса зачётный балл 1"
+    },
+    {
+      "id": "ans_4",
+      "type": "callback",
+      "label": "Очень часто",
+      "handler": "on_answer",
+      "goes_to": "question | result",
+      "available_in": "question (state answering)",
+      "effect": "балл 4; для обратного вопроса зачётный балл 0"
+    },
+    {
+      "id": "book_consult",
+      "type": "callback",
+      "label": "Записаться на консультацию",
+      "handler": "on_book_consult",
+      "goes_to": "booking_name",
+      "available_in": "result",
+      "effect": "state = waiting_name, поля заявки обнулены"
+    },
+    {
+      "id": "restart",
+      "type": "callback",
+      "label": "Пройти ещё раз",
+      "handler": "on_restart",
+      "goes_to": "welcome",
+      "available_in": "result",
+      "effect": "state.clear(), снова приветствие с кнопкой «Начать тест»"
+    },
+    {
+      "id": "/reset",
+      "type": "command",
+      "label": "/reset",
+      "handler": "cmd_reset",
+      "goes_to": "reset_done",
+      "available_in": "любой момент",
+      "effect": "state.clear(), ответ «Сбросила ответы теста и незаконченную заявку»"
+    },
+    {
+      "id": "url_channel",
+      "type": "url",
+      "label": "Перейти в Telegram-канал",
+      "handler": "нет, ссылка CHANNEL_URL",
+      "goes_to": "внешний канал",
+      "available_in": "result, booking_done",
+      "effect": "переход делает Telegram, бот и состояние не участвуют"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "welcome",
+      "type": "экран-команда",
+      "handler": "cmd_start",
+      "trigger": "/start",
+      "screen": "Приветствие: что за тест, 15 утверждений, 3-5 минут, правильных ответов нет",
+      "keyboard": [
+        {
+          "label": "Начать тест",
+          "callback_data": "start_test"
+        }
+      ],
+      "state": null
+    },
+    {
+      "id": "instruction",
+      "type": "экран",
+      "handler": "on_start_test",
+      "trigger": "start_test",
+      "screen": "Инструкция: 15 утверждений, оценка частоты от 0 до 4, отвечать честно",
+      "keyboard": [
+        {
+          "label": "Поехали",
+          "callback_data": "test_go"
+        }
+      ],
+      "state": null
+    },
+    {
+      "id": "question",
+      "type": "цикл",
+      "handler": "on_test_go, on_answer (send_question)",
+      "trigger": "test_go, ans_0..ans_4",
+      "screen": "«Вопрос N из 15», текст утверждения, вопрос «Как часто это про вас?»",
+      "keyboard": [
+        {
+          "label": "Никогда",
+          "callback_data": "ans_0"
+        },
+        {
+          "label": "Редко",
+          "callback_data": "ans_1"
+        },
+        {
+          "label": "Иногда",
+          "callback_data": "ans_2"
+        },
+        {
+          "label": "Часто",
+          "callback_data": "ans_3"
+        },
+        {
+          "label": "Очень часто",
+          "callback_data": "ans_4"
+        }
+      ],
+      "state": "TestStates.answering",
+      "fsm_data": {
+        "index": "номер текущего вопроса, 0..14",
+        "scores": "зачётные баллы по уже отвеченным вопросам",
+        "message_id": "id сообщения с активной клавиатурой"
+      },
+      "repeats": "15 раз: index 0 → 14, по одному вопросу на сообщение"
+    },
+    {
+      "id": "result",
+      "type": "экран-выход",
+      "handler": "on_answer (последний ответ)",
+      "trigger": "ans_0..ans_4 на 15-м вопросе",
+      "screen": "Заголовок уровня, «Ваш результат: X из 60 баллов», расшифровка, совет",
+      "keyboard": [
+        {
+          "label": "Перейти в Telegram-канал",
+          "url": "CHANNEL_URL"
+        },
+        {
+          "label": "Записаться на консультацию",
+          "callback_data": "book_consult"
+        },
+        {
+          "label": "Пройти ещё раз",
+          "callback_data": "restart"
+        }
+      ],
+      "state": null
+    },
+    {
+      "id": "booking_name",
+      "type": "ввод текста",
+      "handler": "on_book_consult, on_booking_name",
+      "trigger": "book_consult",
+      "screen": "«Как вас зовут? Напишите имя — оно попадёт в заявку на консультацию»",
+      "expects": "текст от 2 до 64 символов",
+      "keyboard": [],
+      "state": "BookingStates.waiting_name"
+    },
+    {
+      "id": "booking_time",
+      "type": "ввод текста",
+      "handler": "on_booking_time_format",
+      "trigger": "имя получено",
+      "screen": "«Спасибо, {имя}! Когда вам удобно созвониться и как удобнее общаться?» + пример",
+      "expects": "текст от 2 до 200 символов",
+      "keyboard": [],
+      "state": "BookingStates.waiting_time_format"
+    },
+    {
+      "id": "booking_contact",
+      "type": "ввод текста",
+      "handler": "on_booking_contact",
+      "trigger": "время и формат получены",
+      "screen": "«Остался последний шаг: оставьте контакт — телефон или username. Контакт нужен только для ответа по заявке»",
+      "expects": "текст от 3 до 100 символов",
+      "keyboard": [],
+      "state": "BookingStates.waiting_contact"
+    },
+    {
+      "id": "booking_done",
+      "type": "экран-выход",
+      "handler": "on_booking_contact",
+      "trigger": "контакт получен и заявка записана",
+      "screen": "«Спасибо! Мы свяжемся с вами в ближайшее время.»",
+      "keyboard": [
+        {
+          "label": "Перейти в Telegram-канал",
+          "url": "CHANNEL_URL"
+        }
+      ],
+      "state": null
+    },
+    {
+      "id": "booking_error",
+      "type": "экран ошибки",
+      "handler": "on_booking_contact",
+      "trigger": "ошибка записи файла (OSError, ValueError)",
+      "screen": "«Не получилось сохранить заявку. Попробуйте, пожалуйста, ещё раз через минуту.»",
+      "keyboard": [],
+      "state": "BookingStates.waiting_contact",
+      "note": "состояние не сбрасывается: человек повторяет только контакт"
+    },
+    {
+      "id": "stale_answer",
+      "type": "защита",
+      "handler": "on_answer",
+      "trigger": "ans_* из сообщения, которое уже не активно",
+      "screen": "всплывающее сообщение «Этот вопрос уже неактуален»",
+      "keyboard": [],
+      "state": "TestStates.answering",
+      "note": "балл не засчитывается, счёт не меняется"
+    },
+    {
+      "id": "reset_done",
+      "type": "экран-команда",
+      "handler": "cmd_reset",
+      "trigger": "/reset",
+      "screen": "«Сбросила ответы теста и незаконченную заявку» + приветствие",
+      "keyboard": [
+        {
+          "label": "Начать тест",
+          "callback_data": "start_test"
+        }
+      ],
+      "state": null
+    }
+  ],
+  "transitions": [
+    {
+      "from": "*",
+      "event": "command:/start",
+      "to": "welcome",
+      "action": "state.clear(): прерванный тест или начатая заявка забыты"
+    },
+    {
+      "from": "welcome",
+      "event": "callback:start_test",
+      "to": "instruction",
+      "action": "показывается инструкция; данные FSM не меняются"
+    },
+    {
+      "from": "instruction",
+      "event": "callback:test_go",
+      "to": "question",
+      "action": "state = answering, index = 0, scores = [], message_id = None; инструкция удаляется из чата"
+    },
+    {
+      "from": "question",
+      "event": "callback:ans_0..ans_4 (актуальное сообщение)",
+      "to": "question",
+      "action": "apply_answer(): direct — балл как есть, reverse — 4 - балл; scores.append(); index += 1; старое сообщение удаляется, приходит следующий вопрос, message_id обновляется",
+      "condition": "index < 14"
+    },
+    {
+      "from": "question",
+      "event": "callback:ans_0..ans_4 (15-й вопрос)",
+      "to": "result",
+      "action": "балл добавляется, calculate_result(scores), state.clear(), отправляется результат с тремя кнопками",
+      "condition": "index == 14"
+    },
+    {
+      "from": "question",
+      "event": "callback:ans_* из старого сообщения",
+      "to": "stale_answer",
+      "action": "callback.answer(«Этот вопрос уже неактуален»), балл не засчитывается, счёт не меняется",
+      "condition": "message.message_id != message_id из FSM"
+    },
+    {
+      "from": "stale_answer",
+      "event": "нажатие на кнопки актуального вопроса",
+      "to": "question",
+      "action": "сценарий продолжается с текущего вопроса"
+    },
+    {
+      "from": "question",
+      "event": "callback:ans_*, сообщение недоступно",
+      "to": "question",
+      "action": "callback.message is None: всплывающее «Сообщение устарело, отправьте /start», состояние и счёт не меняются",
+      "condition": "Telegram не отдал сообщение: оно удалено или слишком старое"
+    },
+    {
+      "from": "question",
+      "event": "callback:ans_* без данных состояния",
+      "to": "welcome",
+      "action": "state.clear() и всплывающее сообщение «Тест уже завершён, отправьте /start»",
+      "condition": "index отсутствует или index >= 15 (например, после перезапуска бота)"
+    },
+    {
+      "from": "result",
+      "event": "callback:book_consult",
+      "to": "booking_name",
+      "action": "state = waiting_name; name, time_format, contact = None"
+    },
+    {
+      "from": "result",
+      "event": "callback:restart",
+      "to": "welcome",
+      "action": "state.clear(); приветствие с кнопкой «Начать тест»"
+    },
+    {
+      "from": "result",
+      "event": "url:Перейти в Telegram-канал",
+      "to": "result",
+      "action": "переход в канал делает Telegram; бот и состояние не участвуют"
+    },
+    {
+      "from": "booking_name",
+      "event": "текст 2-64 символа",
+      "to": "booking_time",
+      "action": "имя сохраняется, state = waiting_time_format; имя экранируется (escape) перед подстановкой в HTML"
+    },
+    {
+      "from": "booking_name",
+      "event": "текст короче 2 или длиннее 64 символов",
+      "to": "booking_name",
+      "action": "подсказка «Имя должно быть от 2 до 64 символов», состояние не меняется"
+    },
+    {
+      "from": "booking_time",
+      "event": "текст 2-200 символов",
+      "to": "booking_contact",
+      "action": "время и формат сохраняются, state = waiting_contact"
+    },
+    {
+      "from": "booking_time",
+      "event": "текст короче 2 или длиннее 200 символов",
+      "to": "booking_time",
+      "action": "подсказка «напишите время и формат связи текстом», состояние не меняется"
+    },
+    {
+      "from": "booking_contact",
+      "event": "текст 3-100 символов",
+      "to": "booking_done",
+      "action": "save_application(user_id, name, time_format, contact) → запись в хранилище/заявки.json; state.clear(); кнопка канала"
+    },
+    {
+      "from": "booking_contact",
+      "event": "текст 3-100 символов, запись не удалась",
+      "to": "booking_error",
+      "action": "logging.exception, состояние waiting_contact сохраняется — достаточно повторить контакт",
+      "condition": "save_application() поднял OSError или ValueError"
+    },
+    {
+      "from": "booking_contact",
+      "event": "текст короче 3 или длиннее 100 символов",
+      "to": "booking_contact",
+      "action": "подсказка «нужен телефон или username длиной от 3 символов»"
+    },
+    {
+      "from": "booking_error",
+      "event": "повторный текст 3-100 символов",
+      "to": "booking_done",
+      "action": "повторный вызов save_application(); при успехе state.clear()"
+    },
+    {
+      "from": "booking_done",
+      "event": "url:Перейти в Telegram-канал",
+      "to": "booking_done",
+      "action": "переход в канал делает Telegram; бот не участвует"
+    },
+    {
+      "from": "*",
+      "event": "command:/reset",
+      "to": "reset_done",
+      "action": "state.clear(); «Сбросила ответы теста и незаконченную заявку» + приветствие"
+    },
+    {
+      "from": "reset_done",
+      "event": "callback:start_test",
+      "to": "instruction",
+      "action": "тест начинается заново с чистыми данными"
+    }
+  ],
+  "states": {
+    "TestStates.answering": {
+      "group": "TestStates",
+      "name": "answering",
+      "entered_from": "instruction → test_go",
+      "accepts": "callback ans_0..ans_4",
+      "data": {
+        "index": "0..14",
+        "scores": "зачётные баллы по отвеченным вопросам",
+        "message_id": "id сообщения с актуальными кнопками"
+      },
+      "exits": "question (следующий вопрос), result (15-й ответ), welcome (/start, /reset), сброс при отсутствии данных"
+    },
+    "BookingStates.waiting_name": {
+      "group": "BookingStates",
+      "name": "waiting_name",
+      "entered_from": "result → book_consult",
+      "accepts": "любой текст пользователя",
+      "data": {
+        "name": "строка 2-64 символа после strip()"
+      },
+      "exits": "booking_time (имя принято), booking_name (подсказка), welcome (/start, /reset)"
+    },
+    "BookingStates.waiting_time_format": {
+      "group": "BookingStates",
+      "name": "waiting_time_format",
+      "entered_from": "booking_name",
+      "accepts": "любой текст пользователя",
+      "data": {
+        "time_format": "строка 2-200 символов: когда удобно и как удобнее общаться"
+      },
+      "exits": "booking_contact (принято), booking_time (подсказка), welcome (/start, /reset)"
+    },
+    "BookingStates.waiting_contact": {
+      "group": "BookingStates",
+      "name": "waiting_contact",
+      "entered_from": "booking_time",
+      "accepts": "любой текст пользователя",
+      "data": {
+        "contact": "строка 3-100 символов: телефон или username"
+      },
+      "exits": "booking_done (заявка записана), booking_error (ошибка записи), booking_contact (подсказка), welcome (/start, /reset)"
+    }
+  },
+  "exits": [
+    {
+      "id": "test_result",
+      "type": "результат теста",
+      "node": "result",
+      "result": "Сумма 0-60 баллов → уровень: 0-20 заниженная, 21-40 адекватная, 41-60 завышенная. Показываются заголовок, балл из 60, расшифровка и совет",
+      "state_after": "очищено"
+    },
+    {
+      "id": "application_saved",
+      "type": "сохранение заявки",
+      "node": "booking_done",
+      "result": "Запись {user_id, name, time_format, contact, timestamp} дописывается в хранилище/заявки.json (indent=4, кириллица читаемая)",
+      "state_after": "очищено"
+    },
+    {
+      "id": "reset",
+      "type": "сброс",
+      "node": "reset_done",
+      "result": "Незаконченный тест или начатая заявка отменены, бот вернулся в приветствие",
+      "state_after": "очищено"
+    },
+    {
+      "id": "external_channel",
+      "type": "внешняя ссылка",
+      "node": "result, booking_done",
+      "result": "Пользователь уходит в Telegram-канал по URL-кнопке (сейчас заглушка CHANNEL_URL)",
+      "state_after": "не меняется"
+    },
+    {
+      "id": "save_error",
+      "type": "ветка ошибки, не выход",
+      "node": "booking_error",
+      "result": "Человек видит «Не получилось сохранить заявку» и может повторить контакт, не проходя тест и запись заново",
+      "state_after": "waiting_contact сохраняется"
+    }
+  ],
+  "data": {
+    "questions": {
+      "count": 15,
+      "direct": 10,
+      "reverse": 5,
+      "reverse_rule": "зачётный балл = 4 - ответ",
+      "file": "данные/questions.py"
+    },
+    "answer_scale": [
+      {
+        "label": "Никогда",
+        "score": 0
+      },
+      {
+        "label": "Редко",
+        "score": 1
+      },
+      {
+        "label": "Иногда",
+        "score": 2
+      },
+      {
+        "label": "Часто",
+        "score": 3
+      },
+      {
+        "label": "Очень часто",
+        "score": 4
+      }
+    ],
+    "score": {
+      "min": 0,
+      "max": 60
+    },
+    "levels": [
+      {
+        "level": "low",
+        "range": [0, 20],
+        "title": "Заниженная самооценка"
+      },
+      {
+        "level": "normal",
+        "range": [21, 40],
+        "title": "Адекватная самооценка"
+      },
+      {
+        "level": "high",
+        "range": [41, 60],
+        "title": "Завышенная самооценка"
+      }
+    ],
+    "application": {
+      "file": "хранилище/заявки.json",
+      "fields": ["user_id", "name", "time_format", "contact", "timestamp"],
+      "mode": "дописывание, старые заявки не затираются",
+      "corrupt_file": "копия заявки_повреждён_<дата>.json, бот продолжает работу"
+    },
+    "fsm_data": "MemoryStorage: состояния и ответы живут в памяти процесса и сбрасываются при перезапуске бота — для учебного проекта это осознанное решение"
+  },
+  "algorithm_note": "Тест линейный: 15 шагов вперёд без ветвлений, каждый ответ удаляет прошлый вопрос из чата. Ветка записи — три последовательных вопроса с валидацией длины. Ветвления есть только в защите от устаревших нажатий и в подсказках при неверном вводе; /start и /reset возвращают сценарий в начало из любого места."
+}
